@@ -764,9 +764,11 @@ void WrappedID3D11DeviceContext::VSGetShader(ID3D11VertexShader **ppVertexShader
   SCOPED_LOCK_OPTIONAL(m_pDevice->D3DLock(), m_pDevice->D3DThreadSafe());
 
   ID3D11ClassInstance *realInsts[D3D11_SHADER_MAX_INTERFACES] = {0};
-  UINT numInsts = 0;
+  UINT numInsts = ppClassInstances && pNumClassInstances ?
+                      RDCMIN(*pNumClassInstances, UINT(D3D11_SHADER_MAX_INTERFACES)) :
+                      0;
   ID3D11VertexShader *realShader = NULL;
-  m_pRealContext->VSGetShader(&realShader, realInsts, &numInsts);
+  m_pRealContext->VSGetShader(&realShader, ppClassInstances ? realInsts : NULL, &numInsts);
 
   SAFE_RELEASE_NOCLEAR(realShader);
   for(UINT i = 0; i < numInsts; i++)
@@ -1159,9 +1161,11 @@ void WrappedID3D11DeviceContext::HSGetShader(ID3D11HullShader **ppHullShader,
   SCOPED_LOCK_OPTIONAL(m_pDevice->D3DLock(), m_pDevice->D3DThreadSafe());
 
   ID3D11ClassInstance *realInsts[D3D11_SHADER_MAX_INTERFACES] = {0};
-  UINT numInsts = 0;
+  UINT numInsts = ppClassInstances && pNumClassInstances ?
+                      RDCMIN(*pNumClassInstances, UINT(D3D11_SHADER_MAX_INTERFACES)) :
+                      0;
   ID3D11HullShader *realShader = NULL;
-  m_pRealContext->HSGetShader(&realShader, realInsts, &numInsts);
+  m_pRealContext->HSGetShader(&realShader, ppClassInstances ? realInsts : NULL, &numInsts);
 
   SAFE_RELEASE_NOCLEAR(realShader);
   for(UINT i = 0; i < numInsts; i++)
@@ -1553,9 +1557,11 @@ void WrappedID3D11DeviceContext::DSGetShader(ID3D11DomainShader **ppDomainShader
   SCOPED_LOCK_OPTIONAL(m_pDevice->D3DLock(), m_pDevice->D3DThreadSafe());
 
   ID3D11ClassInstance *realInsts[D3D11_SHADER_MAX_INTERFACES] = {0};
-  UINT numInsts = 0;
+  UINT numInsts = ppClassInstances && pNumClassInstances ?
+                      RDCMIN(*pNumClassInstances, UINT(D3D11_SHADER_MAX_INTERFACES)) :
+                      0;
   ID3D11DomainShader *realShader = NULL;
-  m_pRealContext->DSGetShader(&realShader, realInsts, &numInsts);
+  m_pRealContext->DSGetShader(&realShader, ppClassInstances ? realInsts : NULL, &numInsts);
 
   SAFE_RELEASE_NOCLEAR(realShader);
   for(UINT i = 0; i < numInsts; i++)
@@ -1948,9 +1954,11 @@ void WrappedID3D11DeviceContext::GSGetShader(ID3D11GeometryShader **ppGeometrySh
   SCOPED_LOCK_OPTIONAL(m_pDevice->D3DLock(), m_pDevice->D3DThreadSafe());
 
   ID3D11ClassInstance *realInsts[D3D11_SHADER_MAX_INTERFACES] = {0};
-  UINT numInsts = 0;
+  UINT numInsts = ppClassInstances && pNumClassInstances ?
+                      RDCMIN(*pNumClassInstances, UINT(D3D11_SHADER_MAX_INTERFACES)) :
+                      0;
   ID3D11GeometryShader *realShader = NULL;
-  m_pRealContext->GSGetShader(&realShader, realInsts, &numInsts);
+  m_pRealContext->GSGetShader(&realShader, ppClassInstances ? realInsts : NULL, &numInsts);
 
   SAFE_RELEASE_NOCLEAR(realShader);
   for(UINT i = 0; i < numInsts; i++)
@@ -2770,9 +2778,11 @@ void WrappedID3D11DeviceContext::PSGetShader(ID3D11PixelShader **ppPixelShader,
   SCOPED_LOCK_OPTIONAL(m_pDevice->D3DLock(), m_pDevice->D3DThreadSafe());
 
   ID3D11ClassInstance *realInsts[D3D11_SHADER_MAX_INTERFACES] = {0};
-  UINT numInsts = 0;
+  UINT numInsts = ppClassInstances && pNumClassInstances ?
+                      RDCMIN(*pNumClassInstances, UINT(D3D11_SHADER_MAX_INTERFACES)) :
+                      0;
   ID3D11PixelShader *realShader = NULL;
-  m_pRealContext->PSGetShader(&realShader, realInsts, &numInsts);
+  m_pRealContext->PSGetShader(&realShader, ppClassInstances ? realInsts : NULL, &numInsts);
 
   SAFE_RELEASE_NOCLEAR(realShader);
   for(UINT i = 0; i < numInsts; i++)
@@ -4742,9 +4752,11 @@ void WrappedID3D11DeviceContext::CSGetShader(ID3D11ComputeShader **ppComputeShad
   SCOPED_LOCK_OPTIONAL(m_pDevice->D3DLock(), m_pDevice->D3DThreadSafe());
 
   ID3D11ClassInstance *realInsts[D3D11_SHADER_MAX_INTERFACES] = {0};
-  UINT numInsts = 0;
+  UINT numInsts = ppClassInstances && pNumClassInstances ?
+                      RDCMIN(*pNumClassInstances, UINT(D3D11_SHADER_MAX_INTERFACES)) :
+                      0;
   ID3D11ComputeShader *realShader = NULL;
-  m_pRealContext->CSGetShader(&realShader, realInsts, &numInsts);
+  m_pRealContext->CSGetShader(&realShader, ppClassInstances ? realInsts : NULL, &numInsts);
 
   SAFE_RELEASE_NOCLEAR(realShader);
   for(UINT i = 0; i < numInsts; i++)
