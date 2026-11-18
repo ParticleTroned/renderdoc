@@ -95,6 +95,8 @@ float4 main(v2f IN) : SV_Target0
                 "A null context state must leave both context and output unchanged");
     const ULONG references = ctxstate_off->AddRef();
     ctxstate_off->Release();
+    const ULONG discardedReferences = ctxstate->AddRef();
+    ctxstate->Release();
     for(int i = 0; i < 64; i++)
     {
       ID3DDeviceContextState *previous = NULL;
@@ -106,7 +108,10 @@ float4 main(v2f IN) : SV_Target0
     const ULONG restoredReferences = ctxstate_off->AddRef();
     ctxstate_off->Release();
     TEST_ASSERT(references == restoredReferences, "State restoration must balance wrapper references");
-
+    const ULONG restoredDiscardedReferences = ctxstate->AddRef();
+    ctxstate->Release();
+    TEST_ASSERT(discardedReferences == restoredDiscardedReferences,
+                "Discarded previous states must not retain a wrapper reference");
 
     D3D11_RASTERIZER_DESC rastDesc = {
         D3D11_FILL_SOLID, D3D11_CULL_NONE, FALSE, 0, 0.00, 0.00, FALSE, TRUE, FALSE, FALSE,

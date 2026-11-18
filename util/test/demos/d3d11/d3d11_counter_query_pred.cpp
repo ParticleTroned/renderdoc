@@ -174,6 +174,9 @@ RD_TEST(D3D11_Counter_Query_Pred, D3D11GraphicsTest)
 
     auto checkPredication = [&](ID3D11Predicate *expected, BOOL expectedValue) {
       ctx->SetPredication(expected, expectedValue);
+      const ULONG references = expected ? expected->AddRef() : 0;
+      if(expected)
+        expected->Release();
       for(int i = 0; i < 32; i++)
       {
         ID3D11Predicate *observed = NULL;
@@ -191,7 +194,17 @@ RD_TEST(D3D11_Counter_Query_Pred, D3D11GraphicsTest)
         }
         ctx->GetPredication(NULL, &value);
         TEST_ASSERT(value == expectedValue, "Predicate output is optional");
+        ctx->GetPredication(&observed, NULL);
+        TEST_ASSERT(observed == expected, "Predicate value output is optional");
+        if(observed)
+          observed->Release();
         ctx->GetPredication(NULL, NULL);
+      }
+      if(expected)
+      {
+        const ULONG restoredReferences = expected->AddRef();
+        expected->Release();
+        TEST_ASSERT(references == restoredReferences, "Predicate getter references remain balanced");
       }
     };
     checkPredication(curFramePass, TRUE);
