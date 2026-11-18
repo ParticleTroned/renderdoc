@@ -217,7 +217,7 @@ extern "C" RENDERDOC_API bool RENDERDOC_CC RENDERDOC_IsReleaseBuild()
 extern "C" RENDERDOC_API uint32_t RENDERDOC_CC RENDERDOC_GetD3D11StateCompatibilityVersion()
 {
 #if defined(RENDERDOC_PLATFORM_WIN32)
-  return 1;
+  return 2;
 #else
   return 0;
 #endif

@@ -35,13 +35,18 @@ Application-side D3D11 compatibility
 This fork exports `RENDERDOC_GetD3D11StateCompatibilityVersion` with C linkage
 and the `RENDERDOC_CC` calling convention. Applications can resolve it from
 the loaded library as a function returning `uint32_t`. An absent export or
-zero means that the contract is unavailable; Windows builds return 1.
+zero means that the contract is unavailable; Windows builds return 2.
 
 Version 1 guarantees that `GetPredication` returns an owned wrapper reference,
 null `SwapDeviceContextState` input is a no-op, and previous-state references
 are balanced whether returned, reused, or discarded. Later versions preserve
 these guarantees. The export does not change the upstream application API
 table or identify a RenderDoc release.
+
+Version 2 also preserves dynamic class-instance bindings in all six shader
+getters, respects the caller's class-array capacity, and supports count-only
+queries. Applications restoring complete pipeline bindings must require at
+least version 2, since version 1 does not guarantee these shader getters.
 
 This contract permits applications to gate manual D3D11 binding restoration
 on the required getter fixes. It does not promise vendor-extension replay:
