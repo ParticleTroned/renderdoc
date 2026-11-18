@@ -29,6 +29,27 @@ To install on windows run the appropriate installer for your OS ([64-bit](https:
 * **Information for contributors**: [All contribution information](docs/CONTRIBUTING.md), [Compilation instructions](docs/CONTRIBUTING/Compiling.md)
 * **Community extensions**: [Extensions repository](https://github.com/baldurk/renderdoc-contrib)
 
+Application-side D3D11 compatibility
+------------------------------------
+
+This fork exports `RENDERDOC_GetD3D11StateCompatibilityVersion` with C linkage
+and the `RENDERDOC_CC` calling convention. Applications can resolve it from
+the loaded library as a function returning `uint32_t`. An absent export or
+zero means that the contract is unavailable; Windows builds return 1.
+
+Version 1 guarantees that `GetPredication` returns an owned wrapper reference,
+null `SwapDeviceContextState` input is a no-op, and previous-state references
+are balanced whether returned, reused, or discarded. Later versions preserve
+these guarantees. The export does not change the upstream application API
+table or identify a RenderDoc release.
+
+This contract permits applications to gate manual D3D11 binding restoration
+on the required getter fixes. It does not promise vendor-extension replay:
+applications must negotiate the capture API separately and validate their
+vendor work and frame boundaries. NvAPI passthrough must be configured before
+initializing vendor SDKs, and application-owned VR captures must encompass
+both eye submissions.
+
 Screenshots
 --------------
 
