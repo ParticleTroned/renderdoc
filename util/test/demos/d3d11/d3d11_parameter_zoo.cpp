@@ -24,6 +24,9 @@
 
 #include "d3d11_test.h"
 
+_COM_SMARTPTR_TYPEDEF(ID3D11ClassLinkage, __uuidof(ID3D11ClassLinkage));
+_COM_SMARTPTR_TYPEDEF(ID3D11ClassInstance, __uuidof(ID3D11ClassInstance));
+
 RD_TEST(D3D11_Parameter_Zoo, D3D11GraphicsTest)
 {
   static constexpr const char *Description =
@@ -69,6 +72,41 @@ float4 main(v2f IN) : SV_Target0
     ID3D11BufferPtr cb = MakeBuffer().Constant().Data(whiteData);
 
     ID3D11BufferPtr vb = MakeBuffer().Vertex().Data(DefaultTri);
+
+    ID3DBlobPtr linkedBlob = Compile(R"EOSHADER(
+interface IColor { float4 GetColor(); };
+class Red : IColor { float4 GetColor() { return float4(1,0,0,1); } };
+Red red;
+IColor selected;
+float4 main() : SV_Target { return selected.GetColor() + red.GetColor(); }
+)EOSHADER", "main", "ps_5_0");
+    ID3D11ClassLinkagePtr linkage;
+    CHECK_HR(dev->CreateClassLinkage(&linkage));
+    ID3D11PixelShaderPtr linkedShader;
+    CHECK_HR(dev->CreatePixelShader(linkedBlob->GetBufferPointer(), linkedBlob->GetBufferSize(),
+                                   linkage, &linkedShader));
+    ID3D11ClassInstancePtr instance;
+    CHECK_HR(linkage->CreateClassInstance("Red", 0, 0, 0, 0, &instance));
+    ctx->PSSetShader(linkedShader, &instance.GetInterfacePtr(), 1);
+    ID3D11PixelShaderPtr observedShader;
+    ID3D11ClassInstance *observedInstance = NULL;
+    UINT instanceCount = 1;
+    ctx->PSGetShader(&observedShader, &observedInstance, &instanceCount);
+    TEST_ASSERT(instanceCount == 1 && observedInstance == instance.GetInterfacePtr() &&
+                    observedShader == linkedShader,
+                "Shader getter must preserve dynamic class bindings");
+    if(observedInstance)
+      observedInstance->Release();
+    observedInstance = instance;
+    observedShader = NULL;
+    instanceCount = 0;
+    ctx->PSGetShader(&observedShader, &observedInstance, &instanceCount);
+    TEST_ASSERT(instanceCount == 0 && observedInstance == instance.GetInterfacePtr(),
+                "A zero-capacity class array must remain untouched");
+    observedShader = NULL;
+    ctx->PSGetShader(&observedShader, NULL, &instanceCount);
+    TEST_ASSERT(instanceCount == 1, "Class count queries do not require an output array");
+    ctx->PSSetShader(NULL, NULL, 0);
 
     // make a simple texture so that the structured data includes texture initial states
     ID3D11Texture2DPtr fltTex = MakeTexture(DXGI_FORMAT_R32G32B32A32_FLOAT, 4, 4).RTV();
