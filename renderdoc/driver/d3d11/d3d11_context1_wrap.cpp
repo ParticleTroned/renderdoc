@@ -2185,7 +2185,7 @@ bool WrappedID3D11DeviceContext::Serialise_SwapDeviceContextState(
 void WrappedID3D11DeviceContext::SwapDeviceContextState(ID3DDeviceContextState *pState,
                                                         ID3DDeviceContextState **ppPreviousState)
 {
-  if(m_pRealContext1 == NULL)
+  if(m_pRealContext1 == NULL || pState == NULL)
     return;
 
   SCOPED_LOCK_OPTIONAL(m_pDevice->D3DLock(), m_pDevice->D3DThreadSafe());
@@ -2207,6 +2207,7 @@ void WrappedID3D11DeviceContext::SwapDeviceContextState(ID3DDeviceContextState *
 
       wrapped->AddRef();
       m_pDevice->Resurrect(wrapped);
+      SAFE_RELEASE(prev);
     }
     else if(prev)
     {
@@ -2218,6 +2219,8 @@ void WrappedID3D11DeviceContext::SwapDeviceContextState(ID3DDeviceContextState *
 
     if(ppPreviousState)
       *ppPreviousState = wrapped;
+    else
+      SAFE_RELEASE(wrapped);
   }
 
   {

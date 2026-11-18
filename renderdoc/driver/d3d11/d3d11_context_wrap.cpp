@@ -7312,17 +7312,17 @@ void WrappedID3D11DeviceContext::SetResourceMinLOD(ID3D11Resource *pResource, FL
 
 void WrappedID3D11DeviceContext::GetPredication(ID3D11Predicate **ppPredicate, BOOL *pPredicateValue)
 {
+  SCOPED_LOCK_OPTIONAL(m_pDevice->D3DLock(), m_pDevice->D3DThreadSafe());
+
   ID3D11Predicate *real = NULL;
   m_pRealContext->GetPredication(&real, pPredicateValue);
-  SAFE_RELEASE_NOCLEAR(real);
 
   if(ppPredicate)
   {
-    if(real)
-      *ppPredicate = UNWRAP(WrappedID3D11Predicate, real);
-    else
-      *ppPredicate = NULL;
+    *ppPredicate = real ? (ID3D11Predicate *)m_pDevice->GetResourceManager()->GetWrapper(real) : NULL;
+    SAFE_ADDREF(*ppPredicate);
   }
+  SAFE_RELEASE(real);
 }
 
 D3D11_DEVICE_CONTEXT_TYPE WrappedID3D11DeviceContext::GetType()

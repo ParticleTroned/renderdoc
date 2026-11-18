@@ -84,6 +84,30 @@ float4 main(v2f IN) : SV_Target0
 
     ctx1->SwapDeviceContextState(ctxstate_off, NULL);
 
+    ID3DDeviceContextState *unchanged = ctxstate_off;
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_POINTLIST);
+    ctx1->SwapDeviceContextState(NULL, &unchanged);
+    ctx1->SwapDeviceContextState(NULL, NULL);
+    D3D11_PRIMITIVE_TOPOLOGY topology = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
+    ctx->IAGetPrimitiveTopology(&topology);
+    TEST_ASSERT(unchanged == ctxstate_off.GetInterfacePtr() &&
+                    topology == D3D11_PRIMITIVE_TOPOLOGY_POINTLIST,
+                "A null context state must leave both context and output unchanged");
+    const ULONG references = ctxstate_off->AddRef();
+    ctxstate_off->Release();
+    for(int i = 0; i < 64; i++)
+    {
+      ID3DDeviceContextState *previous = NULL;
+      ctx1->SwapDeviceContextState(ctxstate, &previous);
+      TEST_ASSERT(previous == ctxstate_off.GetInterfacePtr(), "Return the existing previous state");
+      previous->Release();
+      ctx1->SwapDeviceContextState(ctxstate_off, NULL);
+    }
+    const ULONG restoredReferences = ctxstate_off->AddRef();
+    ctxstate_off->Release();
+    TEST_ASSERT(references == restoredReferences, "State restoration must balance wrapper references");
+
+
     D3D11_RASTERIZER_DESC rastDesc = {
         D3D11_FILL_SOLID, D3D11_CULL_NONE, FALSE, 0, 0.00, 0.00, FALSE, TRUE, FALSE, FALSE,
     };

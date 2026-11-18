@@ -172,6 +172,32 @@ RD_TEST(D3D11_Counter_Query_Pred, D3D11GraphicsTest)
       SetDebugName(curFramePass, "curFramePass");
     }
 
+    auto checkPredication = [&](ID3D11Predicate *expected, BOOL expectedValue) {
+      ctx->SetPredication(expected, expectedValue);
+      for(int i = 0; i < 32; i++)
+      {
+        ID3D11Predicate *observed = NULL;
+        BOOL value = !expectedValue;
+        ctx->GetPredication(&observed, &value);
+        TEST_ASSERT(observed == expected && value == expectedValue,
+                    "GetPredication must return the bound predicate and value");
+        if(observed)
+        {
+          D3D11_QUERY_DESC desc = {};
+          observed->GetDesc(&desc);
+          TEST_ASSERT(desc.Query == D3D11_QUERY_OCCLUSION_PREDICATE,
+                      "GetPredication must return a usable predicate interface");
+          observed->Release();
+        }
+        ctx->GetPredication(NULL, &value);
+        TEST_ASSERT(value == expectedValue, "Predicate output is optional");
+        ctx->GetPredication(NULL, NULL);
+      }
+    };
+    checkPredication(curFramePass, TRUE);
+    checkPredication(curFrameFail, FALSE);
+    checkPredication(NULL, FALSE);
+
     ID3DBlobPtr vsblob = Compile(D3DDefaultVertex, "main", "vs_5_0");
     ID3DBlobPtr psblob = Compile(D3DDefaultPixel, "main", "ps_5_0");
 
