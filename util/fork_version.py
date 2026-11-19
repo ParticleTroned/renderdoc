@@ -95,6 +95,9 @@ def next_release(repository, bump="auto"):
     revision = base + "..HEAD" if base else "HEAD"
     messages = git(repository, "log", "--no-merges", "--format=%B%x00", revision).split("\0")
     level = {"auto": 0, "patch": 1, "minor": 2, "major": 3}[bump]
+    # The first release establishes the namespace even if several PRs merge before checkout.
+    if not previous:
+        level = max(level, 1)
     changes = []
     for message in messages:
         message = message.strip()
