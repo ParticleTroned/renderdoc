@@ -24,6 +24,9 @@
 
 #include "d3d11_test.h"
 
+_COM_SMARTPTR_TYPEDEF(ID3D11ClassLinkage, __uuidof(ID3D11ClassLinkage));
+_COM_SMARTPTR_TYPEDEF(ID3D11ClassInstance, __uuidof(ID3D11ClassInstance));
+
 RD_TEST(D3D11_Parameter_Zoo, D3D11GraphicsTest)
 {
   static constexpr const char *Description =
@@ -70,6 +73,41 @@ float4 main(v2f IN) : SV_Target0
 
     ID3D11BufferPtr vb = MakeBuffer().Vertex().Data(DefaultTri);
 
+    ID3DBlobPtr linkedBlob = Compile(R"EOSHADER(
+interface IColor { float4 GetColor(); };
+class Red : IColor { float4 GetColor() { return float4(1,0,0,1); } };
+Red red;
+IColor selected;
+float4 main() : SV_Target { return selected.GetColor() + red.GetColor(); }
+)EOSHADER", "main", "ps_5_0");
+    ID3D11ClassLinkagePtr linkage;
+    CHECK_HR(dev->CreateClassLinkage(&linkage));
+    ID3D11PixelShaderPtr linkedShader;
+    CHECK_HR(dev->CreatePixelShader(linkedBlob->GetBufferPointer(), linkedBlob->GetBufferSize(),
+                                   linkage, &linkedShader));
+    ID3D11ClassInstancePtr instance;
+    CHECK_HR(linkage->CreateClassInstance("Red", 0, 0, 0, 0, &instance));
+    ctx->PSSetShader(linkedShader, &instance.GetInterfacePtr(), 1);
+    ID3D11PixelShaderPtr observedShader;
+    ID3D11ClassInstance *observedInstance = NULL;
+    UINT instanceCount = 1;
+    ctx->PSGetShader(&observedShader, &observedInstance, &instanceCount);
+    TEST_ASSERT(instanceCount == 1 && observedInstance == instance.GetInterfacePtr() &&
+                    observedShader == linkedShader,
+                "Shader getter must preserve dynamic class bindings");
+    if(observedInstance)
+      observedInstance->Release();
+    observedInstance = instance;
+    observedShader = NULL;
+    instanceCount = 0;
+    ctx->PSGetShader(&observedShader, &observedInstance, &instanceCount);
+    TEST_ASSERT(instanceCount == 0 && observedInstance == instance.GetInterfacePtr(),
+                "A zero-capacity class array must remain untouched");
+    observedShader = NULL;
+    ctx->PSGetShader(&observedShader, NULL, &instanceCount);
+    TEST_ASSERT(instanceCount == 1, "Class count queries do not require an output array");
+    ctx->PSSetShader(NULL, NULL, 0);
+
     // make a simple texture so that the structured data includes texture initial states
     ID3D11Texture2DPtr fltTex = MakeTexture(DXGI_FORMAT_R32G32B32A32_FLOAT, 4, 4).RTV();
     ID3D11RenderTargetViewPtr fltRT = MakeRTV(fltTex);
@@ -83,6 +121,35 @@ float4 main(v2f IN) : SV_Target0
                                             __uuidof(ID3D11Device), NULL, &ctxstate_off));
 
     ctx1->SwapDeviceContextState(ctxstate_off, NULL);
+
+    ID3DDeviceContextState *unchanged = ctxstate_off;
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_POINTLIST);
+    ctx1->SwapDeviceContextState(NULL, &unchanged);
+    ctx1->SwapDeviceContextState(NULL, NULL);
+    D3D11_PRIMITIVE_TOPOLOGY topology = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
+    ctx->IAGetPrimitiveTopology(&topology);
+    TEST_ASSERT(unchanged == ctxstate_off.GetInterfacePtr() &&
+                    topology == D3D11_PRIMITIVE_TOPOLOGY_POINTLIST,
+                "A null context state must leave both context and output unchanged");
+    const ULONG references = ctxstate_off->AddRef();
+    ctxstate_off->Release();
+    const ULONG discardedReferences = ctxstate->AddRef();
+    ctxstate->Release();
+    for(int i = 0; i < 64; i++)
+    {
+      ID3DDeviceContextState *previous = NULL;
+      ctx1->SwapDeviceContextState(ctxstate, &previous);
+      TEST_ASSERT(previous == ctxstate_off.GetInterfacePtr(), "Return the existing previous state");
+      previous->Release();
+      ctx1->SwapDeviceContextState(ctxstate_off, NULL);
+    }
+    const ULONG restoredReferences = ctxstate_off->AddRef();
+    ctxstate_off->Release();
+    TEST_ASSERT(references == restoredReferences, "State restoration must balance wrapper references");
+    const ULONG restoredDiscardedReferences = ctxstate->AddRef();
+    ctxstate->Release();
+    TEST_ASSERT(discardedReferences == restoredDiscardedReferences,
+                "Discarded previous states must not retain a wrapper reference");
 
     D3D11_RASTERIZER_DESC rastDesc = {
         D3D11_FILL_SOLID, D3D11_CULL_NONE, FALSE, 0, 0.00, 0.00, FALSE, TRUE, FALSE, FALSE,

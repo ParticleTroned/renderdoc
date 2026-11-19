@@ -968,8 +968,9 @@ void D3D11DebugManager::GetBufferData(ID3D11Buffer *buffer, uint64_t offset, uin
 
 void D3D11DebugManager::RenderForPredicate()
 {
-  // just somehow draw a quad that renders some pixels to fill the predicate with TRUE
+  // Predicate initialization needs a passing draw after ClearState resets the topology.
   m_pImmediateContext->ClearState();
+  m_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
   D3D11_VIEWPORT viewport = {0, 0, 1, 1, 0.0f, 1.0f};
   m_pImmediateContext->RSSetViewports(1, &viewport);
   m_pImmediateContext->VSSetShader(MSArrayCopyVS, NULL, 0);
