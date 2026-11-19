@@ -29,6 +29,9 @@ class D3D11_External_Write(rdtest.TestCase):
         self.check(any(u.eventId == first.eventId and u.usage == rd.ResourceUsage.All_Resource for u in usages))
         self.check(any(u.eventId == second.eventId and u.usage == rd.ResourceUsage.All_Resource for u in usages))
         history = self.controller.PixelHistory(first.copyDestination, 4, 4, rd.Subresource(), rd.CompType.Typeless)
-        self.check(any(m.eventId == first.eventId for m in history))
-        self.check(any(m.eventId == second.eventId for m in history))
+        for action, color in [(first, [1, 0, 0, 1]), (second, [0, 1, 0, 1])]:
+            modifications = [m for m in history if m.eventId == action.eventId]
+            self.check(len(modifications) == 1)
+            self.check(list(modifications[0].preMod.col.floatValue) == [0, 0, 0, 1])
+            self.check(list(modifications[0].postMod.col.floatValue) == color)
         self.check_export(self.capture_filename)

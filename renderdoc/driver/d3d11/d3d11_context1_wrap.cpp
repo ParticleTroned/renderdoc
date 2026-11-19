@@ -216,10 +216,10 @@ bool WrappedID3D11DeviceContext::Serialise_ExternalWrite(SerialiserType &ser, ID
 
   if(IsReplayingAndReading())
   {
-    if(!output)
+    if(!ExternalWriteTexture(output, m_pDevice))
     {
       SET_ERROR_RESULT(m_FailedReplayResult, ResultCode::APIReplayFailed,
-                       "Opaque vendor output resource is unavailable");
+                       "Opaque vendor output must be a texture from the replay device");
       return false;
     }
     D3D11_TEXTURE2D_DESC desc = {};

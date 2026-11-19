@@ -74,20 +74,32 @@ RD_TEST(D3D11_External_Write, D3D11GraphicsTest)
     void *dependencies[] = {(ID3D11Resource *)input};
     TEST_ASSERT(record(NULL, output, 0, "invalid context", "{}", 0, NULL) == E_INVALIDARG,
                 "Reject a context that is not a wrapper");
-    const auto reject = [&](UINT subresource, const char *label, UINT count, void *const *resources) {
+    const auto reject = [&](ID3D11Resource *destination, UINT subresource, const char *label,
+                            UINT count, void *const *resources, const char *metadata = "{}") {
       const auto captureCount = rdoc->GetNumCaptures();
       rdoc->StartFrameCapture(dev, NULL);
       const float clear[] = {0, 0, 0, 1};
       ctx->ClearRenderTargetView(outputRTV, clear);
-      TEST_ASSERT(record(ctx, output, subresource, label, "{}", count, resources) == E_INVALIDARG,
-                  "Reject invalid vendor boundary arguments");
-      TEST_ASSERT(rdoc->EndFrameCapture(dev, NULL) == 0 && rdoc->GetNumCaptures() == captureCount,
-                  "Missing vendor output must not produce a successful capture");
+      const HRESULT result = record(ctx, destination, subresource, label, metadata, count, resources);
+      const bool rejected = result == E_INVALIDARG;
+      const bool discarded =
+          rdoc->EndFrameCapture(dev, NULL) == 0 && rdoc->GetNumCaptures() == captureCount;
+      TEST_ASSERT(rejected && discarded, "Reject '%s': result 0x%08x, discarded %u", label, result,
+                  discarded);
+      return rejected && discarded;
     };
-    reject(1, "invalid subresource", 0, NULL);
-    reject(0, "too many inputs", 17, NULL);
-    reject(0, "missing inputs", 1, NULL);
-    reject(0, std::string(128, 'x').c_str(), 0, NULL);
+    ID3D11BufferPtr wrongType = MakeBuffer().ByteAddressed().UAV().Size(16);
+    void *wrongInputs[] = {(ID3D11Buffer *)wrongType};
+    const auto checkRejections = [&]() {
+      return reject(output, 1, "invalid subresource", 0, NULL) &&
+             reject(output, 0, "too many inputs", 17, NULL) &&
+             reject(output, 0, "missing inputs", 1, NULL) &&
+             reject(output, 0, std::string(128, 'x').c_str(), 0, NULL) &&
+             reject(output, 0, "oversized metadata", 0, NULL, std::string(16384, 'x').c_str()) &&
+             reject(wrongType, 0, "buffer output", 0, NULL) &&
+             reject(output, 0, "buffer input", 1, wrongInputs);
+    };
+    bool checkedRejections = false;
     D3D11_QUERY_DESC queryDesc = {D3D11_QUERY_OCCLUSION_PREDICATE, 0};
     ID3D11PredicatePtr predicate;
     CHECK_HR(dev->CreatePredicate(&queryDesc, &predicate));
@@ -105,8 +117,11 @@ RD_TEST(D3D11_External_Write, D3D11GraphicsTest)
       realContext->ClearRenderTargetView(realRTV, red);
       const HRESULT expected = rdoc->IsFrameCapturing() ? S_OK : S_FALSE;
       ctx->SetPredication(predicate, TRUE);
-      TEST_ASSERT(record(ctx, output, 0, "First", "{\"evaluation\":1}", 1, dependencies) == expected,
-                  "Record the first real external write");
+      HRESULT recorded = record(ctx, output, 0, "First", "{\"evaluation\":1}", 1, dependencies);
+      TEST_ASSERT(recorded == expected, "First write result 0x%08x, expected 0x%08x", recorded,
+                  expected);
+      if(recorded != expected)
+        return 5;
       ID3D11PredicatePtr restoredPredicate;
       BOOL restoredValue = FALSE;
       ctx->GetPredication(&restoredPredicate, &restoredValue);
@@ -116,19 +131,33 @@ RD_TEST(D3D11_External_Write, D3D11GraphicsTest)
       ctx->CopyResource(first, output);
       ctx->ClearRenderTargetView(outputRTV, black);
       realContext->ClearRenderTargetView(realRTV, green);
-      TEST_ASSERT(record(ctx, output, 0, "Second", "{\"evaluation\":2}", 1, dependencies) == expected,
-                  "Record the second real external write");
+      recorded = record(ctx, output, 0, "Second", "{\"evaluation\":2}", 1, dependencies);
+      TEST_ASSERT(recorded == expected, "Second write result 0x%08x, expected 0x%08x", recorded,
+                  expected);
+      if(recorded != expected)
+        return 5;
       ctx->CopyResource(second, output);
       ctx->CopyResource(output, first);
       const float fraction[] = {0.25f, 0.5f, 0.75f, 1.0f};
       realContext->ClearRenderTargetView(halfRTV, fraction);
-      TEST_ASSERT(record(ctx, half, 0, "HalfFloat", "{}", 1, dependencies) == expected,
-                  "Record half-float inference output");
+      recorded = record(ctx, half, 0, "HalfFloat", "{}", 1, dependencies);
+      TEST_ASSERT(recorded == expected, "Half-float result 0x%08x, expected 0x%08x", recorded,
+                  expected);
+      if(recorded != expected)
+        return 5;
       setMarker("First consumer restored");
       blitToSwap(first);
       Present();
+      // Rejection checks own captures and must not nest inside the harness capture.
+      if(!checkedRejections && !rdoc->IsFrameCapturing())
+      {
+        if(!checkRejections())
+          return 6;
+        checkedRejections = true;
+        TEST_LOG("Validated seven rejected vendor boundary captures");
+      }
     }
-    return 0;
+    return checkedRejections ? 0 : 6;
   }
 };
 REGISTER_TEST();
