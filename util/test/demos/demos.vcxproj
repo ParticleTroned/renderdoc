@@ -153,6 +153,7 @@
     <ClCompile Include="d3d11\d3d11_divergent_shader.cpp" />
     <ClCompile Include="d3d11\d3d11_draw_zoo.cpp" />
     <ClCompile Include="d3d11\d3d11_empty_capture.cpp" />
+    <ClCompile Include="d3d11\d3d11_external_write.cpp" />
     <ClCompile Include="d3d11\d3d11_empty_compute_dispatch.cpp" />
     <ClCompile Include="d3d11\d3d11_empty_drawcall.cpp" />
     <ClCompile Include="d3d11\d3d11_empty_viewports.cpp" />

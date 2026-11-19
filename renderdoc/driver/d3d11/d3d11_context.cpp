@@ -872,6 +872,9 @@ bool WrappedID3D11DeviceContext::ProcessChunk(ReadSerialiser &ser, D3D11Chunk ch
       ret = Serialise_CopySubresourceRegion(ser, 0x0, 0, 0, 0, 0, 0x0, 0, 0x0);
       break;
     case D3D11Chunk::CopyResource: ret = Serialise_CopyResource(ser, 0x0, 0x0); break;
+    case D3D11Chunk::ExternalWrite:
+      ret = Serialise_ExternalWrite(ser, NULL, 0, NULL, NULL, 0, NULL, 0, 0, NULL);
+      break;
     case D3D11Chunk::UpdateSubresource:
       ret = Serialise_UpdateSubresource(ser, 0x0, 0, 0x0, 0x0, 0, 0);
       break;

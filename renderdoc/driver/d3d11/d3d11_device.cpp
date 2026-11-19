@@ -1277,6 +1277,7 @@ bool WrappedID3D11Device::ProcessChunk(ReadSerialiser &ser, D3D11Chunk context)
     case D3D11Chunk::PostFinishCommandListSet:
     case D3D11Chunk::SwapDeviceContextState:
     case D3D11Chunk::SetCommandAnnotation:
+    case D3D11Chunk::ExternalWrite:
     case D3D11Chunk::SwapchainPresent: return m_pImmediateContext->ProcessChunk(ser, context);
 
     // no explicit default so that we have compiler warnings if a chunk isn't explicitly handled.
@@ -2439,6 +2440,9 @@ bool WrappedID3D11Device::EndFrameCapture(DeviceOwnedWindow devWnd)
     {
       case CaptureFailed_UncappedCmdlist: reasonString = "Uncapped command list"; break;
       case CaptureFailed_UncappedUnmap: reasonString = "Uncapped Map()/Unmap()"; break;
+      case CaptureFailed_ExternalWrite:
+        reasonString = "Opaque vendor output could not be captured";
+        break;
       default: break;
     }
 
@@ -2808,6 +2812,9 @@ HRESULT WrappedID3D11Device::Present(IDXGISwapper *swapper, UINT SyncInterval, U
         {
           case CaptureFailed_UncappedCmdlist: reasonString = "Uncapped command list"; break;
           case CaptureFailed_UncappedUnmap: reasonString = "Uncapped Map()/Unmap()"; break;
+          case CaptureFailed_ExternalWrite:
+            reasonString = "Opaque vendor output could not be captured";
+            break;
           default: break;
         }
 

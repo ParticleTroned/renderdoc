@@ -30,6 +30,284 @@
 #include "d3d11_resources.h"
 #include "d3d11_video.h"
 
+namespace
+{
+constexpr uint64_t MaxExternalWriteBytes = 512ULL * 1024 * 1024;
+constexpr UINT MaxExternalWriteInputs = 16;
+
+struct ExternalWritePredication
+{
+  ID3D11DeviceContext *context;
+  ID3D11Predicate *predicate = NULL;
+  BOOL predicateValue = FALSE;
+
+  ExternalWritePredication(ID3D11DeviceContext *ctx) : context(ctx)
+  {
+    context->GetPredication(&predicate, &predicateValue);
+    context->SetPredication(NULL, FALSE);
+  }
+  ~ExternalWritePredication()
+  {
+    context->SetPredication(predicate, predicateValue);
+    SAFE_RELEASE(predicate);
+  }
+};
+
+struct ExternalWriteReadback
+{
+  ID3D11DeviceContext *context;
+  ID3D11Texture2D *texture = NULL;
+  bool mapped = false;
+
+  ~ExternalWriteReadback()
+  {
+    if(mapped)
+      context->Unmap(texture, 0);
+    SAFE_RELEASE(texture);
+  }
+};
+
+bool ExternalWriteTexture(ID3D11Resource *resource, WrappedID3D11Device *device)
+{
+  if(!WrappedID3D11Texture2D1::IsAlloc(resource))
+    return false;
+  ID3D11Device *owner = NULL;
+  resource->GetDevice(&owner);
+  const bool matches = owner == (ID3D11Device *)device;
+  SAFE_RELEASE(owner);
+  return matches;
+}
+}
+
+HRESULT WrappedID3D11DeviceContext::FailExternalWrite(HRESULT error)
+{
+  SCOPED_LOCK_OPTIONAL(m_pDevice->D3DLock(), m_pDevice->D3DThreadSafe());
+  if(IsActiveCapturing(m_State))
+  {
+    if(m_SuccessfulCapture)
+      m_FailureReason = CaptureFailed_ExternalWrite;
+    m_SuccessfulCapture = false;
+  }
+  return FAILED(error) ? error : E_FAIL;
+}
+
+HRESULT WrappedID3D11DeviceContext::CaptureExternalWrite(ID3D11Resource *output, UINT subresource,
+                                                         const char *label, const char *metadata,
+                                                         UINT inputCount, void *const *inputs)
+{
+  SCOPED_LOCK_OPTIONAL(m_pDevice->D3DLock(), m_pDevice->D3DThreadSafe());
+  if(GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE || !ExternalWriteTexture(output, m_pDevice))
+    return FailExternalWrite(E_INVALIDARG);
+
+  // External writers must also invalidate initial contents between captures.
+  const ResourceId outputId = GetIDForDeviceChild(output);
+  MarkDirtyResource(outputId);
+  if(!IsActiveCapturing(m_State))
+    return S_FALSE;
+
+  if(!label || !label[0] || strnlen_s(label, 128) == 128 || !metadata ||
+     strnlen_s(metadata, 16384) == 16384 || inputCount > MaxExternalWriteInputs ||
+     (inputCount && !inputs))
+    return FailExternalWrite(E_INVALIDARG);
+
+  ID3D11Resource *inputResources[MaxExternalWriteInputs] = {};
+  for(UINT i = 0; i < inputCount; ++i)
+  {
+    inputResources[i] = (ID3D11Resource *)inputs[i];
+    if(inputResources[i] && !ExternalWriteTexture(inputResources[i], m_pDevice))
+      return FailExternalWrite(E_INVALIDARG);
+  }
+
+  D3D11_TEXTURE2D_DESC desc = {};
+  ((ID3D11Texture2D *)output)->GetDesc(&desc);
+  if(!desc.MipLevels || subresource >= uint64_t(desc.MipLevels) * desc.ArraySize ||
+     desc.SampleDesc.Count != 1 || desc.Usage != D3D11_USAGE_DEFAULT || IsDepthFormat(desc.Format) ||
+     IsTypelessFormat(desc.Format) || IsYUVFormat(desc.Format) || IsBlockFormat(desc.Format))
+    return FailExternalWrite(E_INVALIDARG);
+
+  const UINT mip = subresource % desc.MipLevels;
+  desc.Width = RDCMAX(1U, desc.Width >> mip);
+  desc.Height = RDCMAX(1U, desc.Height >> mip);
+  const UINT rowSize = GetRowPitch(desc.Width, desc.Format, 0);
+  if(!rowSize || uint64_t(rowSize) * desc.Height > MaxExternalWriteBytes)
+    return FailExternalWrite(E_INVALIDARG);
+  desc.MipLevels = desc.ArraySize = 1;
+  desc.Usage = D3D11_USAGE_STAGING;
+  desc.BindFlags = desc.MiscFlags = 0;
+  desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+
+  ExternalWriteReadback readback{m_pRealContext};
+  HRESULT result = m_pDevice->GetReal()->CreateTexture2D(&desc, NULL, &readback.texture);
+  if(FAILED(result))
+    return FailExternalWrite(result);
+  SetDebugName(readback.texture, "RenderDoc::OpaqueVendorOutputReadback");
+
+  // Observation must not inherit predication or alter the application's predicate.
+  ExternalWritePredication predication(m_pRealContext);
+  m_pRealContext->CopySubresourceRegion(readback.texture, 0, 0, 0, 0, UnwrapResource(output),
+                                        subresource, NULL);
+  D3D11_MAPPED_SUBRESOURCE mapped = {};
+  result = m_pRealContext->Map(readback.texture, 0, D3D11_MAP_READ, 0, &mapped);
+  if(FAILED(result))
+    return FailExternalWrite(result);
+  readback.mapped = true;
+  const uint64_t length = uint64_t(mapped.RowPitch) * (desc.Height - 1) + rowSize;
+  if(!mapped.pData || mapped.RowPitch < rowSize || length > MaxExternalWriteBytes)
+    return FailExternalWrite(E_FAIL);
+  result = m_pDevice->GetReal()->GetDeviceRemovedReason();
+  if(FAILED(result))
+    return FailExternalWrite(result);
+
+  bytebuf packed;
+  const byte *pixels = (const byte *)mapped.pData;
+  if(mapped.RowPitch != rowSize)
+  {
+    packed.resize(size_t(rowSize) * desc.Height);
+    for(UINT row = 0; row < desc.Height; ++row)
+      memcpy(packed.data() + size_t(row) * rowSize, pixels + size_t(row) * mapped.RowPitch, rowSize);
+    pixels = packed.data();
+  }
+
+  DrainAnnotationQueue();
+  m_EmptyCommandList = false;
+  USE_SCRATCH_SERIALISER();
+  SCOPED_SERIALISE_CHUNK(D3D11Chunk::ExternalWrite);
+  SERIALISE_ELEMENT(m_ResourceID).Named("Context"_lit).TypedAs("ID3D11DeviceContext *"_lit);
+  Serialise_ExternalWrite(ser, output, subresource, label, metadata, inputCount, inputResources,
+                          rowSize, rowSize * desc.Height, pixels);
+  MarkResourceReferenced(outputId, eFrameRef_PartialWrite);
+  for(UINT i = 0; i < inputCount; ++i)
+    if(inputResources[i])
+      MarkResourceReferenced(GetIDForDeviceChild(inputResources[i]), eFrameRef_Read);
+  m_ContextRecord->AddChunk(scope.Get());
+  return S_OK;
+}
+
+template <typename SerialiserType>
+bool WrappedID3D11DeviceContext::Serialise_ExternalWrite(SerialiserType &ser, ID3D11Resource *output,
+                                                         UINT subresource, const char *label,
+                                                         const char *metadata, UINT inputCount,
+                                                         ID3D11Resource *const *inputs, UINT rowPitch,
+                                                         UINT dataLength, const void *data)
+{
+  SERIALISE_ELEMENT(output).Important();
+  SERIALISE_ELEMENT(subresource);
+  SERIALISE_ELEMENT_LOCAL(Label, rdcstr(label ? label : "")).Important();
+  SERIALISE_ELEMENT_LOCAL(Evaluation, rdcstr(metadata ? metadata : "")).Important();
+  SERIALISE_ELEMENT(inputCount);
+  SERIALISE_ELEMENT(rowPitch);
+  SERIALISE_ELEMENT(dataLength);
+  if(Label.empty() || Label.size() > 127 || Evaluation.size() > 16383 ||
+     inputCount > MaxExternalWriteInputs || dataLength > MaxExternalWriteBytes)
+  {
+    SET_ERROR_RESULT(m_FailedReplayResult, ResultCode::FileCorrupted,
+                     "Invalid opaque vendor output payload");
+    return false;
+  }
+  SERIALISE_ELEMENT_LOCAL(InputResources, rdcarray<ID3D11Resource *>(inputs, inputCount)).Important();
+  SERIALISE_ELEMENT_LOCAL(OutputPixels, bytebuf((const byte *)data, dataLength));
+  SERIALISE_CHECK_READ_ERRORS();
+  if(InputResources.size() != inputCount || OutputPixels.size() != dataLength)
+  {
+    SET_ERROR_RESULT(m_FailedReplayResult, ResultCode::FileCorrupted,
+                     "Opaque vendor output array lengths do not match their descriptors");
+    return false;
+  }
+
+  if(IsReplayingAndReading())
+  {
+    if(!ExternalWriteTexture(output, m_pDevice))
+    {
+      SET_ERROR_RESULT(m_FailedReplayResult, ResultCode::APIReplayFailed,
+                       "Opaque vendor output must be a texture from the replay device");
+      return false;
+    }
+    D3D11_TEXTURE2D_DESC desc = {};
+    ((ID3D11Texture2D *)output)->GetDesc(&desc);
+    if(!desc.MipLevels || subresource >= uint64_t(desc.MipLevels) * desc.ArraySize ||
+       desc.SampleDesc.Count != 1 || desc.Usage != D3D11_USAGE_DEFAULT || IsDepthFormat(desc.Format) ||
+       IsTypelessFormat(desc.Format) || IsYUVFormat(desc.Format) || IsBlockFormat(desc.Format))
+    {
+      SET_ERROR_RESULT(m_FailedReplayResult, ResultCode::APIReplayFailed,
+                       "Opaque vendor output texture is incompatible");
+      return false;
+    }
+    const UINT mip = subresource % desc.MipLevels;
+    const UINT height = RDCMAX(1U, desc.Height >> mip);
+    const UINT rowSize = GetRowPitch(RDCMAX(1U, desc.Width >> mip), desc.Format, 0);
+    if(!rowSize || rowPitch < rowSize || uint64_t(rowPitch) * (height - 1) + rowSize != dataLength)
+    {
+      SET_ERROR_RESULT(m_FailedReplayResult, ResultCode::FileCorrupted,
+                       "Opaque vendor output size does not match the texture");
+      return false;
+    }
+    ExternalWritePredication predication(m_pRealContext);
+    m_pRealContext->UpdateSubresource(UnwrapResource(output), subresource, NULL,
+                                      OutputPixels.data(), rowPitch, 0);
+    if(IsLoading(m_State))
+    {
+      AddEvent();
+      const ResourceId outputId = GetIDForDeviceChild(output);
+      ActionDescription action;
+      action.customName = "Restore captured " + Label + " output [opaque vendor boundary]";
+      action.flags = ActionFlags::Copy;
+      action.copyDestination = outputId;
+      action.copyDestinationSubresource = Subresource(mip, subresource / desc.MipLevels);
+      m_ResourceUses[outputId].push_back(EventUsage(m_CurEventID, ResourceUsage::CopyDst));
+      for(UINT i = 0; i < inputCount; ++i)
+        if(InputResources[i])
+          m_ResourceUses[GetIDForDeviceChild(InputResources[i])].push_back(
+              EventUsage(m_CurEventID, ResourceUsage::All_Resource));
+      AddAction(action);
+      m_pDevice->AddDebugMessage(
+          MessageCategory::Portability, MessageSeverity::High,
+          MessageSource::UnsupportedConfiguration,
+          Label +
+              ": restoring the actual captured output; private inference is not re-executed. "
+              "Edited inputs/shaders do not propagate through this boundary. Input usages are "
+              "application-declared dependencies, not an internal access trace. Pixel history "
+              "shows boundary values only; timings measure restoration, not vendor inference.");
+    }
+  }
+  return true;
+}
+
+INSTANTIATE_FUNCTION_SERIALISED(bool, WrappedID3D11DeviceContext, ExternalWrite,
+                                ID3D11Resource *output, UINT subresource, const char *label,
+                                const char *metadata, UINT inputCount, ID3D11Resource *const *inputs,
+                                UINT rowPitch, UINT dataLength, const void *data);
+
+extern "C" RENDERDOC_API int32_t RENDERDOC_CC RENDERDOC_CaptureD3D11ExternalWrite(
+    void *context, void *output, uint32_t subresource, const char *label, const char *metadata,
+    uint32_t inputCount, void *const *inputs)
+{
+  if(!WrappedID3D11DeviceContext::IsAlloc(context))
+    return E_INVALIDARG;
+  auto *wrapped = (WrappedID3D11DeviceContext *)context;
+  try
+  {
+    return wrapped->CaptureExternalWrite((ID3D11Resource *)output, subresource, label, metadata,
+                                         inputCount, inputs);
+  }
+  catch(const std::bad_alloc &)
+  {
+    return wrapped->FailExternalWrite(E_OUTOFMEMORY);
+  }
+  catch(const std::exception &error)
+  {
+    RDCERR("Opaque vendor capture failed: %s", error.what());
+    return wrapped->FailExternalWrite(E_FAIL);
+  }
+}
+
+extern "C" RENDERDOC_API int32_t RENDERDOC_CC RENDERDOC_FailD3D11ExternalWrite(void *context,
+                                                                               int32_t error)
+{
+  if(!WrappedID3D11DeviceContext::IsAlloc(context))
+    return E_INVALIDARG;
+  return ((WrappedID3D11DeviceContext *)context)->FailExternalWrite(error);
+}
+
 /////////////////////////////////
 // implement ID3D11DeviceContext1
 
@@ -2185,7 +2463,7 @@ bool WrappedID3D11DeviceContext::Serialise_SwapDeviceContextState(
 void WrappedID3D11DeviceContext::SwapDeviceContextState(ID3DDeviceContextState *pState,
                                                         ID3DDeviceContextState **ppPreviousState)
 {
-  if(m_pRealContext1 == NULL)
+  if(m_pRealContext1 == NULL || pState == NULL)
     return;
 
   SCOPED_LOCK_OPTIONAL(m_pDevice->D3DLock(), m_pDevice->D3DThreadSafe());
@@ -2207,6 +2485,7 @@ void WrappedID3D11DeviceContext::SwapDeviceContextState(ID3DDeviceContextState *
 
       wrapped->AddRef();
       m_pDevice->Resurrect(wrapped);
+      SAFE_RELEASE(prev);
     }
     else if(prev)
     {
@@ -2218,6 +2497,8 @@ void WrappedID3D11DeviceContext::SwapDeviceContextState(ID3DDeviceContextState *
 
     if(ppPreviousState)
       *ppPreviousState = wrapped;
+    else
+      SAFE_RELEASE(wrapped);
   }
 
   {
