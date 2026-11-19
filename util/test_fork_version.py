@@ -131,6 +131,11 @@ class ForkVersionTests(unittest.TestCase):
                 self.assertEqual(version.next_release(self.root)["fork"], expected)
                 self.git("tag", "-d", "pt-v1.2.3")
 
+    def test_first_release_survives_a_merge_burst_ending_in_build_changes(self):
+        self.commit("fix(d3d11): restore state (#1)")
+        self.commit("build(d3d11): export compatibility (#2)")
+        self.assertEqual(version.next_release(self.root)["tag"], "pt-v1.0.0")
+
     def test_build_only_release_is_explicit_and_cannot_lower_required_bump(self):
         self.tag()
         self.assertFalse(version.next_release(self.root, "patch")["released"])
