@@ -172,6 +172,12 @@ RD_TEST(D3D11_Counter_Query_Pred, D3D11GraphicsTest)
       SetDebugName(curFramePass, "curFramePass");
     }
 
+    ctx->SetPredication(NULL, FALSE);
+    ctx->Begin(curFramePass);
+    ctx->End(curFramePass);
+    ctx->Begin(curFrameFail);
+    ctx->End(curFrameFail);
+
     auto checkPredication = [&](ID3D11Predicate *expected, BOOL expectedValue) {
       ctx->SetPredication(expected, expectedValue);
       const ULONG references = expected ? expected->AddRef() : 0;
@@ -192,8 +198,10 @@ RD_TEST(D3D11_Counter_Query_Pred, D3D11GraphicsTest)
                       "GetPredication must return a usable predicate interface");
           observed->Release();
         }
+        value = !expectedValue;
         ctx->GetPredication(NULL, &value);
         TEST_ASSERT(value == expectedValue, "Predicate output is optional");
+        observed = NULL;
         ctx->GetPredication(&observed, NULL);
         TEST_ASSERT(observed == expected, "Predicate value output is optional");
         if(observed)
