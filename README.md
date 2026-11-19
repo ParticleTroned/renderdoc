@@ -37,6 +37,11 @@ and the `RENDERDOC_CC` calling convention. Applications can resolve it from
 the loaded library as a function returning `uint32_t`. An absent export or
 zero means that the contract is unavailable; Windows builds return 2.
 
+The loaded runtime DLL provides this capability. Applications must deploy a
+compatible build of this fork and retain its matching replay tools. Updating
+`renderdoc_app.h` or merging changes in this repository does not update a DLL
+already bundled with an application.
+
 Version 1 guarantees that `GetPredication` returns an owned wrapper reference,
 null `SwapDeviceContextState` input is a no-op, and previous-state references
 are balanced whether returned, reused, or discarded. Later versions preserve
