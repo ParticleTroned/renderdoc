@@ -10,6 +10,7 @@ Release64/
 build/
 build-*/
 /compile_commands.json
+/Directory.Build.props
 .cache/
 /dist/
 /package/
