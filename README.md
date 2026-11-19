@@ -29,6 +29,52 @@ To install on windows run the appropriate installer for your OS ([64-bit](https:
 * **Information for contributors**: [All contribution information](docs/CONTRIBUTING.md), [Compilation instructions](docs/CONTRIBUTING/Compiling.md)
 * **Community extensions**: [Extensions repository](https://github.com/baldurk/renderdoc-contrib)
 
+Fork versioning
+---------------
+
+This fork retains upstream's numeric RenderDoc version and reports its own
+release separately, for example `1.47+pt.1.0.0`. The fork component comes from
+the nearest reachable `pt-vX.Y.Z` tag on the first-parent history. Upstream
+and alandtse release tags do not participate. Updating upstream does not
+reset the fork version or modify upstream's version macros.
+
+Untagged builds append `.dev.<distance>.<commit>`; tracked local changes add
+`.dirty`. Clone with tags and full history. Missing release tags fail by
+default. Before the first fork release, the explicit `--allow-unreleased`
+option produces `upstream+pt.0.0.0.dev.<commit>` rather than claiming a release.
+
+Prepare Windows build metadata with Python 3.9 or later, then build the
+solution normally:
+
+```powershell
+python util/fork_version.py metadata --msbuild-props Directory.Build.props
+```
+
+The generated props file is ignored by Git and preserves existing compiler
+definitions. An unmanaged props file is never overwritten. Regenerate the
+metadata after changing commits, tags, or tracked files. The combined
+version appears in the startup distribution log, UI, and Windows product
+version string. Numeric API and Windows file versions remain upstream's.
+Linux builds pass the helper's version, distribution, and contact outputs
+to CMake's `BUILD_VERSION_DIST_VER`, `BUILD_VERSION_DIST_NAME`, and
+`BUILD_VERSION_DIST_CONTACT` options.
+
+On `ParticleTroned/renderdoc`, merges into `dev` use an independent `pt-v`
+release sequence without a version-bump commit. The first release is
+`pt-v1.0.0`; subsequent `fix`, `perf`, and `revert` changes bump the patch,
+`feat` bumps the minor, and explicit breaking changes bump the major.
+Build, CI, documentation, and test changes do not release automatically.
+Use the Release workflow's manual `patch`, `minor`, or `major` input when
+those changes need a new distribution, such as a compatibility export.
+An explicit input cannot lower a required semantic bump.
+
+Release builds check out the exact tag and embed its combined identity.
+Windows and Linux assets are attached to a draft release, which becomes
+public after both builds succeed. Retry a failed artifact build with the
+Build workflow and the existing `pt-vX.Y.Z` tag. Release notes include the
+upstream base and fork version. Synchronize upstream by merge and preserve
+the fork's tags; do not edit upstream's numeric version for fork changes.
+
 Screenshots
 --------------
 
