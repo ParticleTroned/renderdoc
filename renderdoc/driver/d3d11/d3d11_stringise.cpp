@@ -59,7 +59,7 @@ rdcstr DoStringise(const D3D11ResourceType &el)
 template <>
 rdcstr DoStringise(const D3D11Chunk &el)
 {
-  RDCCOMPILE_ASSERT((uint32_t)D3D11Chunk::Max == 1132, "Chunks changed without updating names");
+  RDCCOMPILE_ASSERT((uint32_t)D3D11Chunk::Max == 1133, "Chunks changed without updating names");
 
   BEGIN_ENUM_STRINGISE(D3D11Chunk)
   {
@@ -215,6 +215,7 @@ rdcstr DoStringise(const D3D11Chunk &el)
     STRINGISE_ENUM_CLASS_NAMED(SetShaderExtUAV, "VendorExtension::SetExtensionUAVSlot");
     STRINGISE_ENUM_CLASS_NAMED(SetCommandAnnotation, "Internal::SetCommandAnnotation");
 
+    STRINGISE_ENUM_CLASS_NAMED(ExternalWrite, "External::CapturedVendorOutput");
     STRINGISE_ENUM_CLASS_NAMED(Max, "Max Chunk");
   }
   END_ENUM_STRINGISE()

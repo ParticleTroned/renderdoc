@@ -223,6 +223,16 @@ extern "C" RENDERDOC_API uint32_t RENDERDOC_CC RENDERDOC_GetD3D11StateCompatibil
 #endif
 }
 
+/** Reports explicitly labelled D3D11 vendor-output restoration support. */
+extern "C" RENDERDOC_API uint32_t RENDERDOC_CC RENDERDOC_GetD3D11ExternalWriteVersion()
+{
+#if defined(RENDERDOC_PLATFORM_WIN32)
+  return 1;
+#else
+  return 0;
+#endif
+}
+
 extern "C" RENDERDOC_API const char *RENDERDOC_CC RENDERDOC_GetCommitHash()
 {
   return GitVersionHash;

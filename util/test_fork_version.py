@@ -165,8 +165,9 @@ class ForkVersionTests(unittest.TestCase):
         namespace = {"m": "http://schemas.microsoft.com/developer/msbuild/2003"}
         for tool in ("ClCompile", "ResourceCompile"):
             definitions = root.find("m:ItemDefinitionGroup/m:" + tool + "/m:PreprocessorDefinitions", namespace).text
-            self.assertIn('DISTRIBUTION_VERSION="1.47+pt.1.2.3"', definitions)
-            self.assertIn('DISTRIBUTION_NAME="ParticleTroned/renderdoc"', definitions)
+            quote = r'\"' if tool == "ResourceCompile" else '"'
+            self.assertIn('DISTRIBUTION_VERSION=' + quote + '1.47+pt.1.2.3' + quote, definitions)
+            self.assertIn('DISTRIBUTION_NAME=' + quote + 'ParticleTroned/renderdoc' + quote, definitions)
             self.assertIn("%(PreprocessorDefinitions)", definitions)
         version.write_props(path, identity)
         self.assertEqual(path.stat().st_mtime_ns, stamp)

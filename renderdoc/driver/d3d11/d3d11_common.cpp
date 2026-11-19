@@ -532,6 +532,10 @@ bool D3D11InitParams::IsSupportedVersion(uint64_t ver)
   if(ver == 0x13)
     return true;
 
+  // The fork version distinguishes opaque output restoration from upstream calls.
+  if(ver == 0x14)
+    return true;
+
   return false;
 }
 

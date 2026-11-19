@@ -79,8 +79,10 @@ def write_props(path, identity):
                       for key, value in (("NAME", "distribution"), ("VERSION", "version"),
                                          ("CONTACT", "contact")))
     for tool in ("ClCompile", "ResourceCompile"):
+        # ResourceCompile needs explicit escaping for string-valued definitions.
+        tool_values = values.replace('"', r'\"') if tool == "ResourceCompile" else values
         ET.SubElement(ET.SubElement(definitions, tool), "PreprocessorDefinitions").text = (
-            values + ";%(PreprocessorDefinitions)")
+            tool_values + ";%(PreprocessorDefinitions)")
     content = '<?xml version="1.0" encoding="utf-8"?>\n' + GENERATED + "\n" + ET.tostring(project, encoding="unicode") + "\n"
     if not path.exists() or path.read_text(encoding="utf-8") != content:
         path.write_text(content, encoding="utf-8")
