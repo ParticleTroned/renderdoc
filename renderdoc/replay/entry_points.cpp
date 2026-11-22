@@ -213,6 +213,26 @@ extern "C" RENDERDOC_API bool RENDERDOC_CC RENDERDOC_IsReleaseBuild()
 #endif
 }
 
+/** Reports the fork's D3D11 state-wrapper contract for application-side compatibility checks. */
+extern "C" RENDERDOC_API uint32_t RENDERDOC_CC RENDERDOC_GetD3D11StateCompatibilityVersion()
+{
+#if defined(RENDERDOC_PLATFORM_WIN32)
+  return 2;
+#else
+  return 0;
+#endif
+}
+
+/** Reports explicitly labelled D3D11 vendor-output restoration support. */
+extern "C" RENDERDOC_API uint32_t RENDERDOC_CC RENDERDOC_GetD3D11ExternalWriteVersion()
+{
+#if defined(RENDERDOC_PLATFORM_WIN32)
+  return 1;
+#else
+  return 0;
+#endif
+}
+
 extern "C" RENDERDOC_API const char *RENDERDOC_CC RENDERDOC_GetCommitHash()
 {
   return GitVersionHash;

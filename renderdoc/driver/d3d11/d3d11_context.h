@@ -93,6 +93,7 @@ enum CaptureFailReason
   CaptureSucceeded = 0,
   CaptureFailed_UncappedUnmap,
   CaptureFailed_UncappedCmdlist,
+  CaptureFailed_ExternalWrite,
 };
 
 // a fake device child to be able to register a resource without needing a wrapper
@@ -333,6 +334,15 @@ public:
   void EndCaptureFrame();
 
   void MarkDirtyResource(ResourceId id);
+
+  HRESULT FailExternalWrite(HRESULT error);
+  HRESULT CaptureExternalWrite(ID3D11Resource *output, UINT subresource, const char *label,
+                               const char *metadata, UINT inputCount, void *const *inputs);
+  template <typename SerialiserType>
+  bool Serialise_ExternalWrite(SerialiserType &ser, ID3D11Resource *output, UINT subresource,
+                               const char *label, const char *metadata, UINT inputCount,
+                               ID3D11Resource *const *inputs, UINT rowPitch, UINT dataLength,
+                               const void *data);
 
   // insert a fake chunk just to store these parameters
   IMPLEMENT_FUNCTION_SERIALISED(void, Present, UINT SyncInterval, UINT Flags);

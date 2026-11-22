@@ -30,6 +30,69 @@ To install on windows run the appropriate installer for your OS ([64-bit](https:
 * **Information for contributors**: [All contribution information](docs/CONTRIBUTING.md), [Compilation instructions](docs/CONTRIBUTING/Compiling.md)
 * **Community extensions**: [Extensions repository](https://github.com/baldurk/renderdoc-contrib)
 
+Application-side D3D11 compatibility
+------------------------------------
+
+This fork exports `RENDERDOC_GetD3D11StateCompatibilityVersion` with C linkage
+and the `RENDERDOC_CC` calling convention. Applications can resolve it from
+the loaded library as a function returning `uint32_t`. An absent export or
+zero means that the contract is unavailable; Windows builds return 2.
+
+The loaded runtime DLL provides this capability. Applications must deploy a
+compatible build of this fork and retain its matching replay tools. Updating
+`renderdoc_app.h` or merging changes in this repository does not update a DLL
+already bundled with an application.
+
+Version 1 guarantees that `GetPredication` returns an owned wrapper reference,
+null `SwapDeviceContextState` input is a no-op, and previous-state references
+are balanced whether returned, reused, or discarded. Later versions preserve
+these guarantees. The export does not change the upstream application API
+table or identify a RenderDoc release.
+
+Version 2 also preserves dynamic class-instance bindings in all six shader
+getters, respects the caller's class-array capacity, and supports count-only
+queries. Applications restoring complete pipeline bindings must require at
+least version 2, since version 1 does not guarantee these shader getters.
+
+This contract permits applications to gate manual D3D11 binding restoration
+on the required getter fixes. It does not promise vendor-extension replay:
+applications must negotiate the capture API separately and validate their
+vendor work and frame boundaries. NvAPI passthrough must be configured before
+initializing vendor SDKs, and application-owned VR captures must encompass
+both eye submissions.
+
+Opaque vendor output capture
+----------------------------
+
+Windows builds independently export `RENDERDOC_GetD3D11ExternalWriteVersion`
+(version 1), `RENDERDOC_CaptureD3D11ExternalWrite`, and
+`RENDERDOC_FailD3D11ExternalWrite`. See
+[`renderdoc_d3d11.h`](renderdoc/api/app/renderdoc_d3d11.h) for the C ABI.
+The state-compatibility export does not imply this capability.
+
+Applications call the extension after ordering an opaque evaluation's
+completion on their immediate D3D11 context and before consuming its output.
+During capture, the extension reads the actual output subresource and records
+its application-declared input dependencies and evaluation metadata. Outside
+capture, it only invalidates cached initial contents. No output pixels or
+pipeline bindings are changed. A missing readback or invalid arguments on a
+valid immediate context invalidate the capture instead of saving incomplete
+vendor work. Applications can explicitly reject incomplete metadata too.
+
+Replay restores those bytes in a dedicated `External::CapturedVendorOutput`
+event, labelled **opaque vendor boundary**. It is a restoration copy, not a
+recorded inference dispatch. NVIDIA's inference kernels are not re-executed;
+input usages are declared dependencies, not a hidden access trace. Pixel
+history can inspect values before/after the boundary but cannot inspect its
+internal computation. Upstream shader/resource edits do not propagate through
+it. GPU counters time restoration, not inference; captures are not evidence of
+vendor performance or the absence of synchronization races. Each boundary
+emits a high-severity replay diagnostic explaining these limitations.
+
+Captures use fork D3D11 section version `0x50540001`. Unmodified upstream
+rejects this version; the fork continues reading upstream versions 0x0f
+through 0x14. Keep the matching fork tools with the capture.
+
 Fork versioning
 ---------------
 

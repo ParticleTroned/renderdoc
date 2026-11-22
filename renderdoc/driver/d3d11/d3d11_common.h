@@ -404,6 +404,7 @@ enum class D3D11Chunk : uint32_t
   OpenSharedResourceByName,
   SetShaderExtUAV,
   SetCommandAnnotation,
+  ExternalWrite,
   Max,
 };
 
