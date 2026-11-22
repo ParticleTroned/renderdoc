@@ -172,6 +172,53 @@ RD_TEST(D3D11_Counter_Query_Pred, D3D11GraphicsTest)
       SetDebugName(curFramePass, "curFramePass");
     }
 
+    ctx->SetPredication(NULL, FALSE);
+    ctx->Begin(curFramePass);
+    ctx->End(curFramePass);
+    ctx->Begin(curFrameFail);
+    ctx->End(curFrameFail);
+
+    auto checkPredication = [&](ID3D11Predicate *expected, BOOL expectedValue) {
+      ctx->SetPredication(expected, expectedValue);
+      const ULONG references = expected ? expected->AddRef() : 0;
+      if(expected)
+        expected->Release();
+      for(int i = 0; i < 32; i++)
+      {
+        ID3D11Predicate *observed = NULL;
+        BOOL value = !expectedValue;
+        ctx->GetPredication(&observed, &value);
+        TEST_ASSERT(observed == expected && value == expectedValue,
+                    "GetPredication must return the bound predicate and value");
+        if(observed)
+        {
+          D3D11_QUERY_DESC desc = {};
+          observed->GetDesc(&desc);
+          TEST_ASSERT(desc.Query == D3D11_QUERY_OCCLUSION_PREDICATE,
+                      "GetPredication must return a usable predicate interface");
+          observed->Release();
+        }
+        value = !expectedValue;
+        ctx->GetPredication(NULL, &value);
+        TEST_ASSERT(value == expectedValue, "Predicate output is optional");
+        observed = NULL;
+        ctx->GetPredication(&observed, NULL);
+        TEST_ASSERT(observed == expected, "Predicate value output is optional");
+        if(observed)
+          observed->Release();
+        ctx->GetPredication(NULL, NULL);
+      }
+      if(expected)
+      {
+        const ULONG restoredReferences = expected->AddRef();
+        expected->Release();
+        TEST_ASSERT(references == restoredReferences, "Predicate getter references remain balanced");
+      }
+    };
+    checkPredication(curFramePass, TRUE);
+    checkPredication(curFrameFail, FALSE);
+    checkPredication(NULL, FALSE);
+
     ID3DBlobPtr vsblob = Compile(D3DDefaultVertex, "main", "vs_5_0");
     ID3DBlobPtr psblob = Compile(D3DDefaultPixel, "main", "ps_5_0");
 

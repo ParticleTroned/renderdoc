@@ -2,119 +2,73 @@ name: Release
 
 on:
   push:
-    branches:
-      - dev
+    branches: [dev]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Optional release for changes without a semantic bump
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: particletroned-release
+  cancel-in-progress: false
 
 jobs:
   release:
-    name: Create release
+    name: Create fork release
+    if: github.repository == 'ParticleTroned/renderdoc'
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       released: ${{ steps.version.outputs.released }}
     steps:
     - uses: actions/checkout@v4
       with:
+        ref: dev
         fetch-depth: 0
 
-    - name: Compute fork version tag
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
+    - name: Test fork versioning
+      run: python -m unittest discover -s util -p test_fork_version.py
+
+    - name: Compute independent fork version
       id: version
-      run: |
-        MAJOR=$(grep '#define RENDERDOC_VERSION_MAJOR' renderdoc/api/replay/version.h | awk '{print $3}')
-        MINOR=$(grep '#define RENDERDOC_VERSION_MINOR' renderdoc/api/replay/version.h | awk '{print $3}')
-        UPSTREAM_BASE="${MAJOR}.${MINOR}"
-
-        # Find the latest fork tag across ALL upstream base versions.
-        # Fork semver is continuous — it doesn't reset when upstream bumps.
-        # The upstream prefix (1.44 vs 1.45) already communicates the upstream base.
-        LAST_TAG=$(git tag --list "v*-alandtse.*.*.*" --sort=-version:refname | head -n1)
-
-        # Skip if HEAD is already tagged — prevents force-pushed amendments from
-        # creating duplicate releases.
-        HEAD_TAG=$(git tag --list "v*-alandtse.*.*.*" --points-at HEAD | head -n1)
-        if [ -n "$HEAD_TAG" ]; then
-          echo "released=false" >> "$GITHUB_OUTPUT"
-          echo "HEAD is already tagged as ${HEAD_TAG} — skipping release."
-          exit 0
-        fi
-
-        if [ -z "$LAST_TAG" ]; then
-          # No fork releases yet
-          FORK_MAJOR=0; FORK_MINOR=0; FORK_PATCH=0
-          RANGE="HEAD"
-        else
-          # Carry forward fork version from whatever the last tag was
-          FORK_VER=$(echo "$LAST_TAG" | sed 's/v[0-9]*\.[0-9]*-alandtse\.//')
-          FORK_MAJOR="${FORK_VER%%.*}"; FORK_VER="${FORK_VER#*.}"
-          FORK_MINOR="${FORK_VER%%.*}"; FORK_PATCH="${FORK_VER#*.}"
-          RANGE="${LAST_TAG}..HEAD"
-        fi
-
-        # Subjects only — used for type/breaking-flag checks to avoid matching body lines.
-        # Full messages (subject + body) — used only for BREAKING CHANGE footer detection.
-        SUBJECTS=$(git log "$RANGE" --pretty=format:"%s")
-        FULL=$(git log "$RANGE" --pretty=format:"%s%n%b")
-
-        # Exclude upstream-sync merges; check whether any releasable commits exist.
-        RELEASABLE=$(echo "$SUBJECTS" | \
-          grep -E '^(feat|fix|perf|refactor|revert|docs|test|chore)(\(.+\))?!?:' | \
-          grep -vE '^chore\(upstream-sync\)') || true
-
-        if [ -z "$RELEASABLE" ]; then
-          echo "released=false" >> "$GITHUB_OUTPUT"
-          echo "No releasable conventional commits since ${LAST_TAG:-beginning} — skipping release."
-          exit 0
-        fi
-
-        # Determine bump level. Checks are in descending priority order.
-        # Subject-based breaking flag (type!:) uses subjects only to avoid body false-positives.
-        # BREAKING CHANGE footer uses full message body as per conventional commits spec.
-        BUMP="patch"
-        if echo "$SUBJECTS" | grep -qE '^(feat|fix|perf|refactor|revert|docs|test|chore)(\(.+\))?!:'; then
-          BUMP="major"
-        elif echo "$FULL" | grep -q '^BREAKING CHANGE:'; then
-          BUMP="major"
-        elif echo "$SUBJECTS" | grep -qE '^feat(\(.+\))?:'; then
-          BUMP="minor"
-        fi
-
-        # Apply bump
-        case "$BUMP" in
-          major) FORK_MAJOR=$((FORK_MAJOR + 1)); FORK_MINOR=0; FORK_PATCH=0 ;;
-          minor) FORK_MINOR=$((FORK_MINOR + 1)); FORK_PATCH=0 ;;
-          patch) FORK_PATCH=$((FORK_PATCH + 1)) ;;
-        esac
-
-        TAG="v${UPSTREAM_BASE}-alandtse.${FORK_MAJOR}.${FORK_MINOR}.${FORK_PATCH}"
-        echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-        echo "released=true" >> "$GITHUB_OUTPUT"
-        echo "Computed tag: ${TAG} (bump: ${BUMP})"
-
-    - name: Generate changelog
-      if: steps.version.outputs.released == 'true'
-      uses: orhun/git-cliff-action@v4
-      id: cliff
-      with:
-        config: .github/cliff.toml
-        args: --tag ${{ steps.version.outputs.tag }} --strip header
       env:
-        OUTPUT: RELEASE_NOTES.md
+        BUMP: ${{ inputs.bump || 'auto' }}
+      run: >-
+        python util/fork_version.py release --bump "$BUMP"
+        --github-output "$GITHUB_OUTPUT" --notes RELEASE_NOTES.md
 
-    - name: Create tag and release
+    - name: Create draft release at the measured commit
       if: steps.version.outputs.released == 'true'
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: ${{ steps.version.outputs.tag }}
-        name: ${{ steps.version.outputs.tag }}
-        body_path: RELEASE_NOTES.md
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        TAG: ${{ steps.version.outputs.tag }}
+        SOURCE: ${{ steps.version.outputs.source }}
+      run: |
+        if gh release view "$TAG" >/dev/null 2>&1; then
+          echo "Resuming release $TAG"
+        else
+          gh release create "$TAG" --target "$SOURCE" --title "$TAG" \
+            --draft --notes-file RELEASE_NOTES.md
+        fi
 
   build:
-    name: Build artifacts
+    name: Build and publish artifacts
     needs: release
     if: needs.release.outputs.released == 'true'
+    permissions:
+      contents: write
     uses: ./.github/workflows/build.yml
     with:
       tag: ${{ needs.release.outputs.tag }}
